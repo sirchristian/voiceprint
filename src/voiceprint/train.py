@@ -279,22 +279,20 @@ def train(
 
     console.print(f"\n[bold green]✓ Done![/bold green] Adapter saved to {train_cfg.output_dir}")
 
-    # Log the adapter as an MLFlow PyTorch model so it's loadable via
-    # mlflow.pytorch.load_model("runs:/<run_id>/model").
-    # Use pickle format (pt2 traces the model graph, which fails for
-    # quantized PEFT models that can't be cleanly traced).
+    # Save the trained model object itself.  This is the MLflow PyTorch flow from
+    # the official docs: the registry can later reload it with
+    # mlflow.pytorch.load_model(f"runs:/{run_id}/pytorch_model").
     mlflow.pytorch.log_model(
         model,
-        name="model",
+        name="pytorch_model",
         serialization_format="pickle",
-        tokenizer=tokenizer,
     )
 
     run_id = mlflow.active_run().info.run_id
     mlflow.end_run()
 
     console.print(f"  [dim]MLFlow run ID: {run_id}[/dim]")
-    console.print(f"  [dim]Load with:     mlflow.pytorch.load_model('runs:/{run_id}/model')[/dim]")
+    console.print(f"  [dim]Load with:     mlflow.pytorch.load_model('runs:/{run_id}/pytorch_model')[/dim]")
 
     console.print("\n[dim]Next steps:[/dim]")
     console.print(f"  [dim]  View run:  uv run mlflow ui --backend-store-uri {mlflow_cfg.tracking_uri}[/dim]")

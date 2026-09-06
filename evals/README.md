@@ -23,18 +23,35 @@ model.save_pretrained("models/user-voice-merged")
 
 ## Converting to GGUF for llama.cpp
 
-Once you have a merged model, convert it to GGUF format for llama.cpp:
+Once you have a merged model, convert it to GGUF format for llama.cpp. The
+merged directory must contain both the model weights and tokenizer files
+(`tokenizer.json`, `tokenizer_config.json`, and related files). The export
+helper now copies those files from the adapter automatically.
+
+Use a current llama.cpp checkout with Qwen3 support. Older checkouts may fail
+with `BPE pre-tokenizer was not recognized` or may not register
+`Qwen3ForCausalLM` at all.
 
 ```bash
-# Install the conversion tool
-pip install llama-cpp-python
-
-# Convert to GGUF (Q4_K_M = 4-bit, good balance of quality/speed)
-python -m llama_cpp.convert \
-    --input-dir models/user-voice-merged \
+# Merge the adapter and print the converter command
+uv run voiceprint-gguf \
+    --merged-dir models/user-voice-merged \
     --output-dir models/user-voice-gguf \
-    --outfile user-voice-q4.gguf \
-    --outtype q4_k_m
+    --outfile user-voice-f16.gguf \
+    --outtype f16 \
+    --llama-cpp-dir /path/to/llama.cpp
+
+# Run the printed command, which will look like:
+uv run python /path/to/llama.cpp/convert_hf_to_gguf.py \
+    models/user-voice-merged \
+    --outfile models/user-voice-gguf/user-voice-f16.gguf \
+    --outtype f16
+
+# Quantize the intermediate GGUF for a good size/quality balance:
+/path/to/llama.cpp/llama-quantize \
+    models/user-voice-gguf/user-voice-f16.gguf \
+    models/user-voice-gguf/user-voice-q4_k_m.gguf \
+    Q4_K_M
 ```
 
 Then run with llama.cpp:
