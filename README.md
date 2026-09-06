@@ -2,28 +2,76 @@
 
 A learning-focused setup for fine-tuning small language models with **LoRA** + **4-bit quantization** (QLoRA).  Start tiny with Qwen3-0.6B, learn the concepts, then scale up.
 
-## Quick Start
+## End-to-End Workflow
 
 ```bash
-# 1. Create the virtual environment (uv handles this)
+# 1. Create the environment and install dependencies
 uv venv
-source .venv/bin/activate
-
-# 2. Install dependencies
 uv sync
 
-# 3. Add your training data (see data/README.md)
+# 2. Add your training data (see data/README.md)
 cp data/example.jsonl data/train.jsonl
 
-# 4. Train
+# 3. Fine-tune the QLoRA adapter
 uv run python -m voiceprint.train
 
-# 5. Test the adapter
+# 4. Test the adapter before exporting
 uv run python -m voiceprint.eval
 
-# 6. View training metrics
+# 5. Inspect training metrics (optional)
 uv run mlflow ui --backend-store-uri sqlite:///mlflow/mlflow.db
 ```
+
+Training saves the small LoRA adapter to `adapters/user-voice-v1`. MLflow
+also records the training run, but llama.cpp does not load the MLflow model
+directly. For llama.cpp, merge the adapter into the base model and export a
+standalone GGUF file.
+
+### Export to GGUF for llama.cpp
+
+Install or build a current [llama.cpp](https://github.com/ggml-org/llama.cpp)
+checkout with Qwen3 support. Set `LLAMA_CPP_DIR` to its location, then run:
+
+```bash
+export LLAMA_CPP_DIR=/path/to/llama.cpp
+
+# 6. Merge the adapter and print the conversion command
+uv run voiceprint-gguf \
+	--adapter-dir adapters/user-voice-v1 \
+	--merged-dir models/user-voice-merged \
+	--output-dir models/user-voice-gguf \
+	--outfile user-voice-f16.gguf \
+	--outtype f16 \
+	--llama-cpp-dir "$LLAMA_CPP_DIR"
+
+# 7. Convert the merged Hugging Face model to an intermediate GGUF
+uv run python "$LLAMA_CPP_DIR/convert_hf_to_gguf.py" \
+	models/user-voice-merged \
+	--outfile models/user-voice-gguf/user-voice-f16.gguf \
+	--outtype f16
+
+# 8. Quantize the intermediate GGUF for a smaller llama.cpp model
+"$LLAMA_CPP_DIR/llama-quantize" \
+	models/user-voice-gguf/user-voice-f16.gguf \
+	models/user-voice-gguf/user-voice-q4_k_m.gguf \
+	Q4_K_M
+
+# 9. Run the voice model
+"$LLAMA_CPP_DIR/llama-cli" \
+	-m models/user-voice-gguf/user-voice-q4_k_m.gguf \
+	-p "Hey, what are you working on?" \
+	-n 256 \
+	-t 8
+```
+
+The conversion is intentionally two-stage: `convert_hf_to_gguf.py` creates a
+full-precision GGUF, and `llama-quantize` creates the final `Q4_K_M` file.
+The merged model directory must include the tokenizer files; the
+`voiceprint-gguf` command copies them from the adapter automatically.
+
+If llama.cpp reports `BPE pre-tokenizer was not recognized`, update the
+llama.cpp checkout. This usually means the converter is older than the Qwen3
+tokenizer support or the merged directory is missing its tokenizer files.
 
 ## Directory Layout
 
@@ -74,7 +122,7 @@ All settings live in `src/voiceprint/config.py` — every parameter has an ELI5 
 
 ## Next Steps
 
-1. Curate your voice dataset → `data/`
-2. Run a quick training run → `adapters/`
-3. Test the adapter → `eval/`
-4. Merge + convert to GGUF for llama.cpp → `evals/README.md`
+1. Curate your voice dataset in `data/`.
+2. Train and test the adapter.
+3. Merge and convert it to GGUF.
+4. Run the quantized model with llama.cpp.
