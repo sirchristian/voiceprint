@@ -10,7 +10,7 @@ ELI5 — The full training pipeline step by step:
 2. Attach LoRA adapters to specific layers (this is the "LoRA" part).
    Only the LoRA matrices are trainable — the base model stays frozen.
 
-3. Load and tokenize your data (the "chris dataset" — examples of your voice).
+3. Load and tokenize your data (the voice dataset — examples of your writing).
 
 4. Train: the optimizer updates only the LoRA weights to make the model
    generate text that sounds more like you.
@@ -30,18 +30,21 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+# Load .env if present (HF_TOKEN, MLFLOW_DISABLE_AGENT_HINT, etc.).
+from dotenv import load_dotenv
+load_dotenv()
+
 import mlflow
 import mlflow.pytorch
 import torch
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from rich.console import Console
 from rich.panel import Panel
+from trl import SFTConfig, SFTTrainer
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     BitsAndBytesConfig,
-    SFTTrainer,
-    TrainingArguments,
 )
 
 from voiceprint.config import (
@@ -50,8 +53,9 @@ from voiceprint.config import (
     LoraConfig as LoraCfg,
     MlflowConfig,
     TrainingConfig,
+    VOICE_NAME,
 )
-from voiceprint.data import load_and_prepare, print_dataset_stats
+from voiceprint.data import load_and_prepare
 
 # ──────────────────────────────────────────────────────────────────────
 # Setup
@@ -84,7 +88,7 @@ def load_model_and_tokenizer() -> tuple[AutoModelForCausalLM, AutoTokenizer]:
     """
     console.print(Panel.fit(
         "[bold cyan]Step 1[/bold cyan]: Loading base model (4-bit quantized)…",
-        subtitle=f"Model: {BASE_MODEL_ID}",
+        subtitle=f"Voice: {VOICE_NAME} | Model: {BASE_MODEL_ID}",
     ))
 
     # Quantization config — tells transformers how to compress the model.
@@ -98,10 +102,8 @@ def load_model_and_tokenizer() -> tuple[AutoModelForCausalLM, AutoTokenizer]:
     model = AutoModelForCausalLM.from_pretrained(
         BASE_MODEL_ID,
         quantization_config=bnb_config,
-        device_map="auto",          # Place layers on GPU automatically.
-        torch_dtype=torch.float16,  # Compute dtype (different from storage dtype!).
-        trust_remote_code=True,     # Qwen uses custom code — safe, but requires this flag.
-        # Cache models on the symlinked drive to save local SSD space.
+        device_map="auto",
+        trust_remote_code=True,
         cache_dir=str(Path("models").resolve()),
     )
 
@@ -178,11 +180,11 @@ def setup_mlflow() -> None:
 
     ELI5: MLFlow records every experiment run so you can compare
     different settings (learning rate, rank, data) later.  Start the
-    UI with:  mlflow ui --backend-store-uri mlflow/
+    UI with:  uv run mlflow ui --backend-store-uri mlflow/
     """
     mlflow.set_tracking_uri(mlflow_cfg.tracking_uri)
     mlflow.set_experiment(mlflow_cfg.experiment_name)
-    mlflow.start_run(run_name=f"qlora-{BASE_MODEL_ID.split('/')[-1]}-r{lora_cfg.r}")
+    mlflow.start_run(run_name=f"qlora-{VOICE_NAME}-{BASE_MODEL_ID.split('/')[-1]}-r{lora_cfg.r}")
 
     # Log all training hyperparameters.
     mlflow.log_params({
@@ -222,22 +224,23 @@ def train(
         subtitle=str(data_cfg.train_file),
     ))
 
-    dataset = load_and_prepare(data_cfg, train_cfg, BASE_MODEL_ID)
-    print_dataset_stats(dataset)
+    dataset = load_and_prepare(data_cfg)
 
     console.print(Panel.fit(
         "[bold cyan]Step 4[/bold cyan]: Training (QLoRA)…",
         subtitle=f"max_steps={train_cfg.max_steps}, lr={train_cfg.learning_rate}",
     ))
 
-    # TrainingArguments controls the optimizer, scheduler, logging, etc.
-    training_args = TrainingArguments(
+    # SFTConfig is the current config object for TRL 1.x.  It keeps the
+    # same training knobs, but the trainer constructor now expects the config
+    # passed via `args` and the tokenizer via `processing_class`.
+    sft_config = SFTConfig(
         output_dir=str(train_cfg.output_dir),
-        learning_rate=train_cfg.learning_rate,
-        lr_scheduler_type=train_cfg.lr_scheduler_type,
-        warmup_ratio=train_cfg.warmup_ratio,
         per_device_train_batch_size=train_cfg.per_device_train_batch_size,
         gradient_accumulation_steps=train_cfg.gradient_accumulation_steps,
+        learning_rate=train_cfg.learning_rate,
+        lr_scheduler_type=train_cfg.lr_scheduler_type,
+        warmup_steps=int(train_cfg.max_steps * train_cfg.warmup_ratio),
         max_steps=train_cfg.max_steps,
         num_train_epochs=train_cfg.num_train_epochs,
         gradient_checkpointing=train_cfg.gradient_checkpointing,
@@ -246,19 +249,20 @@ def train(
         save_steps=train_cfg.save_steps,
         save_total_limit=train_cfg.save_total_limit,
         seed=train_cfg.seed,
-        fp16=True,  # Mixed precision — faster on NVIDIA GPUs.
-        report_to="mlflow",  # Send metrics to MLFlow.
-        # Disable wandb (avoids popup).
+        bf16=False,
+        fp16=False,
+        report_to="mlflow",
         disable_tqdm=False,
+        dataset_text_field="text",
+        max_length=train_cfg.max_seq_length,
+        packing=False,
     )
 
     trainer = SFTTrainer(
         model=model,
-        tokenizer=tokenizer,
+        args=sft_config,
         train_dataset=dataset,
-        dataset_text_field="text",  # Column name with the raw text (pre-tokenize).
-        max_seq_length=train_cfg.max_seq_length,
-        args=training_args,
+        processing_class=tokenizer,
     )
 
     trainer.train()
@@ -275,12 +279,25 @@ def train(
 
     console.print(f"\n[bold green]✓ Done![/bold green] Adapter saved to {train_cfg.output_dir}")
 
-    # Log the adapter path to MLFlow.
-    mlflow.log_artifact(str(train_cfg.output_dir))
+    # Log the adapter as an MLFlow PyTorch model so it's loadable via
+    # mlflow.pytorch.load_model("runs:/<run_id>/model").
+    # Use pickle format (pt2 traces the model graph, which fails for
+    # quantized PEFT models that can't be cleanly traced).
+    mlflow.pytorch.log_model(
+        model,
+        name="model",
+        serialization_format="pickle",
+        tokenizer=tokenizer,
+    )
+
+    run_id = mlflow.active_run().info.run_id
     mlflow.end_run()
 
+    console.print(f"  [dim]MLFlow run ID: {run_id}[/dim]")
+    console.print(f"  [dim]Load with:     mlflow.pytorch.load_model('runs:/{run_id}/model')[/dim]")
+
     console.print("\n[dim]Next steps:[/dim]")
-    console.print(f"  [dim]  View run:  mlflow ui --backend-store-uri {mlflow_cfg.tracking_uri}[/dim]")
+    console.print(f"  [dim]  View run:  uv run mlflow ui --backend-store-uri {mlflow_cfg.tracking_uri}[/dim]")
     console.print(f"  [dim]  Test:      python -c 'from voiceprint.eval import main; main()'[/dim]")
     console.print(f"  [dim]  Merge:     see evals/README.md for merging adapter into base model[/dim]")
 

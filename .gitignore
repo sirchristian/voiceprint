@@ -1,3 +1,6 @@
+# Environment
+.env
+
 # Python
 __pycache__/
 *.py[cod]
@@ -9,15 +12,20 @@ build/
 # Models (live on /mnt/storage via symlink)
 # models/
 
-# Adapters
-adapters/*.safetensors
-adapters/*.bin
+# Adapters — keep adapter_model.safetensors, drop optimizer state bloat
+adapters/**/optimizer.pt
+adapters/**/rng_state.pth
+adapters/**/scheduler.pt
+adapters/**/training_args.bin
+adapters/**/trainer_state.json
 
 # MLFlow
 mlflow/mlflow.db
 mlflow/artifacts/
+mlruns/  # File-based duplicate of SQLite tracking
 
-# Data (large files)
+# Data (user-created training files)
+data/train.jsonl
 data/*.jsonl.gz
 
 # IDE

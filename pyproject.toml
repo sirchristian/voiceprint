@@ -24,6 +24,7 @@ dependencies = [
     "pandas>=2.2",
     "rich>=13.9",                # Pretty console output
     "typer>=0.15",               # CLI framework
+    "python-dotenv>=1.0",        # Load .env files (HF_TOKEN, etc.)
 ]
 
 [project.optional-dependencies]

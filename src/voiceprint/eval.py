@@ -10,6 +10,10 @@ it we:
   2. Load the adapter on top with PEFT.
   3. Generate text — the model now has your "voice" baked in.
 
+You can also load the model directly from MLFlow:
+    import mlflow.pytorch
+    model = mlflow.pytorch.load_model("runs:/<run_id>/model")
+
 Later you'll want to:
   - Merge the adapter into the base model (saves one load step).
   - Convert to GGUF format for llama.cpp (see evals/README.md).
@@ -20,51 +24,107 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import mlflow
+import mlflow.pytorch
 import torch
 from peft import PeftModel
 from rich.console import Console
 from rich.panel import Panel
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-from voiceprint.config import BASE_MODEL_ID, TrainingConfig
+from voiceprint.config import BASE_MODEL_ID, MlflowConfig, TrainingConfig
 
 console = Console()
 train_cfg = TrainingConfig()
+mlflow_cfg = MlflowConfig()
 
 # Path to the saved adapter (output of train.py).
 ADAPTER_DIR = train_cfg.output_dir
 
 
+def load_from_mlflow(run_id: str | None = None) -> tuple[torch.nn.Module, AutoTokenizer]:
+    """Load the model directly from MLFlow.
+
+    ELI5: MLFlow stores the model with metadata (flavor, params, signature)
+    so you can load it back without knowing the exact file paths or config.
+    The run_id tells MLFlow which training run to pull the model from.
+
+    If run_id is None, it loads the latest run from the experiment.
+    """
+    mlflow.set_tracking_uri(mlflow_cfg.tracking_uri)
+
+    if run_id:
+        model_uri = f"runs:/{run_id}/model"
+    else:
+        # Find the latest run.
+        client = mlflow.tracking.MlflowClient()
+        experiment = client.get_experiment_by_name(mlflow_cfg.experiment_name)
+        if experiment is None:
+            console.print("[bold red]No MLFlow experiment found. Run training first.[/bold red]")
+            raise SystemExit(1)
+        runs = client.search_runs(experiment.experiment_id, order_by=["attributes.start_time DESC"])
+        if not runs:
+            console.print("[bold red]No runs found in experiment.[/bold red]")
+            raise SystemExit(1)
+        run_id = runs[0].info.run_id
+        model_uri = f"runs:/{run_id}/model"
+
+    console.print(f"[dim]Loading from MLFlow run: {run_id}[/dim]")
+    model = mlflow.pytorch.load_model(model_uri)
+    model.eval()
+    model.to("cuda")
+
+    # Tokenizer lives in the adapter dir (saved alongside the adapter).
+    tokenizer = AutoTokenizer.from_pretrained(
+        str(ADAPTER_DIR),
+        trust_remote_code=True,
+        cache_dir=str(Path("models").resolve()),
+    )
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    console.print("[green]Model loaded from MLFlow[/green]")
+    return model, tokenizer
+
+
 def load_merged_model() -> tuple[AutoModelForCausalLM, AutoTokenizer]:
-    """Load the base model + LoRA adapter merged together.
+    """Load the base model + LoRA adapter.
 
-    ELI5: Merging means we take the LoRA weights (B @ A) and add them
-    directly into the base model's weight matrices.  The result is a
-    single model file — no adapter needed at inference time.
+    ELI5: We load the model at 4-bit (same as training) to minimize VRAM.
+    For merging into a standalone model you'd load at full precision, but
+    that needs ~1.2 GB just for the base — too much when the coding agent
+    is also running.  4-bit inference is plenty fast and accurate for
+    a tiny model like Qwen3-0.6B.
 
-    This is slower to set up (one-time cost) but faster for inference
-    and required for llama.cpp conversion.
+    To merge into a standalone model (for llama.cpp conversion), load
+    without quantization:
+        model = AutoModelForCausalLM.from_pretrained(
+            BASE_MODEL_ID, dtype=torch.float16, device_map="auto",
+        )
     """
     console.print(Panel.fit(
         "[bold cyan]Loading model + adapter[/bold cyan]",
         subtitle=f"Base: {BASE_MODEL_ID} | Adapter: {ADAPTER_DIR}",
     ))
 
-    # Load base model at full precision for merging (better quality).
-    # For inference on a 5090 you could also load at 4-bit to save memory.
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_compute_dtype=torch.float16,
+    )
+
     model = AutoModelForCausalLM.from_pretrained(
         BASE_MODEL_ID,
-        torch_dtype=torch.float16,
+        quantization_config=bnb_config,
+        dtype=torch.float16,
         device_map="auto",
         trust_remote_code=True,
         cache_dir=str(Path("models").resolve()),
     )
 
-    # Stack the LoRA adapter on top.
+    # Stack the LoRA adapter on top (don't merge — keeps model quantized).
     model = PeftModel.from_pretrained(model, str(ADAPTER_DIR))
-
-    # Merge LoRA weights into the base model.
-    model = model.merge_and_unload()
 
     tokenizer = AutoTokenizer.from_pretrained(
         str(ADAPTER_DIR),
@@ -74,7 +134,7 @@ def load_merged_model() -> tuple[AutoModelForCausalLM, AutoTokenizer]:
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    console.print("[green]Model + adapter loaded (merged)[/green]")
+    console.print("[green]Model + adapter loaded (4-bit)[/green]")
     return model, tokenizer
 
 

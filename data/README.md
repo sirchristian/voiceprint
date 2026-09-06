@@ -5,12 +5,12 @@
 A single JSONL file where each line is one training example:
 
 ```jsonl
-{"text": "Hey Christian, what's up?\nI'm working on a new project. It's a QLoRA fine-tuning setup for a personal voice model.\nThat sounds cool, how's it going?"}
+{"text": "Hey, what's up?\nI'm working on a new project. It's a QLoRA fine-tuning setup for a personal voice model.\nThat sounds cool, how's it going?"}
 ```
 
 Each `text` field should be a **complete** example of your writing/voice — conversations, emails, code comments, essays, whatever represents how you communicate.
 
-## Tips for a good "Chris dataset"
+## Tips for a good voice dataset
 
 ### Quantity
 - Start with **50-200 high-quality examples** for a tiny model like Qwen3-0.6B.
@@ -35,7 +35,7 @@ The model learns the patterns in your text.  Good patterns:
 ### Things to avoid
 - Don't include sensitive data (passwords, keys, PII)
 - Don't include copyrighted material you don't own
-- Don't mix in data from other people's voices (confuses the model)
+- Don't mix in data from other people's voices (confuses the model — keep it to one voice per run)
 
 ## Creating the file
 

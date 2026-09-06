@@ -4,7 +4,7 @@ LoRA adapter checkpoints live here.  Each training run produces a folder like:
 
 ```
 adapters/
-└── chris-voice-v1/          # Your adapter
+└── user-voice-v1/           # Your adapter
     ├── adapter_model.safetensors    # The LoRA weights (~10-50 MB)
     ├── adapter_config.json           # LoRA hyperparameters used
     ├── tokenizer.json                # Tokenizer
@@ -24,5 +24,5 @@ from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-0.6B", device_map="auto")
-model = PeftModel.from_pretrained(model, "adapters/chris-voice-v1")
+model = PeftModel.from_pretrained(model, "adapters/user-voice-v1")
 ```

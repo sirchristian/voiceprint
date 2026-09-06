@@ -32,6 +32,13 @@ from typing import Literal
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Identity
+# ──────────────────────────────────────────────────────────────────────
+# What to call this voice profile.  Used for adapter directory names,
+# MLFlow run names, and log messages.  Change this per person/project.
+VOICE_NAME: str = "user"
+
+# ──────────────────────────────────────────────────────────────────────
 # Base model
 # ──────────────────────────────────────────────────────────────────────
 # We start tiny: Qwen3-0.6B has ~600M parameters.
@@ -145,7 +152,7 @@ class TrainingConfig:
     """
 
     # ── Output ──
-    output_dir: Path = Path("adapters/chris-voice-v1")
+    output_dir: Path = Path("adapters/user-voice-v1")
 
     # ── Optimizer ──
     learning_rate: float = 2e-4          # LoRA-friendly LR (higher than full FT)
@@ -163,8 +170,10 @@ class TrainingConfig:
 
     # ── Memory ──
     gradient_checkpointing: bool = True
-    optim: Literal["paged_adamw_8bit"] = "paged_adamw_8bit"
-    # Paged AdamW stores optimizer states on CPU swap — saves VRAM.
+    optim: Literal["adamw_torch", "paged_adamw_8bit"] = "adamw_torch"
+    # The standard AdamW torch optimizer is the simplest stable choice for
+    # this tiny QLoRA workflow.  It avoids the 8-bit paged optimizer edge
+    # cases that can trip mixed-precision training on some GPU stacks.
 
     # ── Logging / saving ──
     logging_steps: int = 10
@@ -188,7 +197,7 @@ class MlflowConfig:
     When you tweak learning rates, ranks, or data, it's easy to forget
     what you tried.  MLFlow logs every run with its params, metrics,
     and artifacts so you can compare them side-by-side in a local
-    dashboard: `mlflow ui --backend-store-uri mlflow/`
+    dashboard: `uv run mlflow ui --backend-store-uri mlflow/`
     """
 
     tracking_uri: str = "sqlite:///mlflow/mlflow.db"

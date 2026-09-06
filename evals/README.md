@@ -16,9 +16,9 @@ from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 base = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-0.6B", torch_dtype="auto", device_map="auto")
-model = PeftModel.from_pretrained(base, "adapters/chris-voice-v1")
+model = PeftModel.from_pretrained(base, "adapters/user-voice-v1")
 model = model.merge_and_unload()
-model.save_pretrained("models/chris-voice-merged")
+model.save_pretrained("models/user-voice-merged")
 ```
 
 ## Converting to GGUF for llama.cpp
@@ -31,16 +31,16 @@ pip install llama-cpp-python
 
 # Convert to GGUF (Q4_K_M = 4-bit, good balance of quality/speed)
 python -m llama_cpp.convert \
-    --input-dir models/chris-voice-merged \
-    --output-dir models/chris-voice-gguf \
-    --outfile chris-voice-q4.gguf \
+    --input-dir models/user-voice-merged \
+    --output-dir models/user-voice-gguf \
+    --outfile user-voice-q4.gguf \
     --outtype q4_k_m
 ```
 
 Then run with llama.cpp:
 
 ```bash
-./llama-cli -m models/chris-voice-gguf/chris-voice-q4.gguf \
+./llama-cli -m models/user-voice-gguf/user-voice-q4.gguf \
     -p "Hey, what are you working on?" \
     -n 256 -t 8
 ```
@@ -60,7 +60,7 @@ Then run with llama.cpp:
 Track token generation speed:
 
 ```bash
-./llama-bench -m models/chris-voice-gguf/chris-voice-q4.gguf
+./llama-bench -m models/user-voice-gguf/user-voice-q4.gguf
 ```
 
 On the 5090 with GGML_CUDA, expect ~200-400 tok/s for a 0.6B model.

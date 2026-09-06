@@ -22,7 +22,7 @@ uv run python -m voiceprint.train
 uv run python -m voiceprint.eval
 
 # 6. View training metrics
-mlflow ui --backend-store-uri mlflow/
+uv run mlflow ui --backend-store-uri sqlite:///mlflow/mlflow.db
 ```
 
 ## Directory Layout
@@ -74,7 +74,7 @@ All settings live in `src/voiceprint/config.py` — every parameter has an ELI5 
 
 ## Next Steps
 
-1. Curate your Chris dataset → `data/`
+1. Curate your voice dataset → `data/`
 2. Run a quick training run → `adapters/`
 3. Test the adapter → `eval/`
 4. Merge + convert to GGUF for llama.cpp → `evals/README.md`
