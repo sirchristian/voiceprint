@@ -12,17 +12,25 @@ build/
 # Models (live on /mnt/storage via symlink)
 # models/
 
-# Adapters — keep adapter_model.safetensors, drop optimizer state bloat
+# Adapters — training outputs, not source.  Keep adapter_config.json for reference.
+adapters/**/adapter_model.safetensors
 adapters/**/optimizer.pt
 adapters/**/rng_state.pth
 adapters/**/scheduler.pt
 adapters/**/training_args.bin
 adapters/**/trainer_state.json
+adapters/**/pytorch_model.bin
+adapters/**/tokenizer.json
+adapters/**/tokenizer_config.json
+adapters/**/tokenizer.model
+adapters/**/special_tokens_map.json
+adapters/**/chat_template.jinja
+adapters/**/README.md
 
 # MLFlow
 mlflow/mlflow.db
 mlflow/artifacts/
-mlruns/  # File-based duplicate of SQLite tracking
+mlruns/
 
 # Data (user-created training files)
 data/train.jsonl
