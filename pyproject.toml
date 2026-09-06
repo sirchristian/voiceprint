@@ -1,0 +1,49 @@
+[project]
+name = "voiceprint"
+version = "0.1.0"
+description = "QLoRA fine-tuning pipeline — learn LoRA + quantization with a tiny Qwen model, eventually target llama.cpp."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+# ──────────────────────────────────────────────────────────────────────
+# Core dependencies
+# ──────────────────────────────────────────────────────────────────────
+dependencies = [
+    "torch>=2.5",                # GPU compute engine
+    "transformers>=4.48",        # Model/tokenizer loading (HuggingFace)
+    "peft>=0.14",                # LoRA / QLoRA parameter-efficient fine-tuning
+    "bitsandbytes>=0.45",        # 4-bit / 8-bit quantization (NVIDIA only)
+    "datasets>=3.2",             # HuggingFace dataset utilities
+    "accelerate>=1.2",           # Mixed-precision helpers + NVIDIA device placement
+    "trl>=0.14",                 # ORPO / SFT trainers (wraps HuggingFace Trainer)
+    "mlflow>=2.19",              # Experiment tracking (loss curves, params, artifacts)
+    "jaxtyping>=0.2.38",         # Runtime type checking for tensor shapes
+    "numpy>=1.26",
+    "scipy>=1.14",
+    "pandas>=2.2",
+    "rich>=13.9",                # Pretty console output
+    "typer>=0.15",               # CLI framework
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6",
+]
+
+# ──────────────────────────────────────────────────────────────────────
+# CLI entry-points
+# ──────────────────────────────────────────────────────────────────────
+[project.scripts]
+voiceprint-train = "voiceprint.train:main"
+voiceprint-eval  = "voiceprint.eval:main"
+
+# ──────────────────────────────────────────────────────────────────────
+# uv settings (keeps the venv inside the repo)
+# ──────────────────────────────────────────────────────────────────────
+[tool.uv]
+package = true
+
+[tool.uv.workspace]
+members = ["."]

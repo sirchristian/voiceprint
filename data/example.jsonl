@@ -1,0 +1,5 @@
+{"text": "Hey, just checking in on the PR — looks like the tests are passing now. I think we're good to merge."}
+{"text": "So here's what I'm thinking: we should refactor the training loop to use the SFTTrainer instead of rolling our own. It handles the common patterns and we can focus on the LoRA config."}
+{"text": "Alright, let me break this down. The issue is that when you quantize to 4-bit, the weights lose precision. But LoRA works around this because we're only training the small adapter matrices in full precision."}
+{"text": "Quick note on the 5090 — with 32 GB VRAM we can comfortably fit a 7B model at 4-bit with room for a decent batch size. The bottleneck will be sequence length more than model size."}
+{"text": "I went ahead and set up the worktree with the setup-worktree script. Remember to run that after creating a new worktree or you'll hit the MissingEntrypointError with Vite."}

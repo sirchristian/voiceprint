@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+
+# Models (live on /mnt/storage via symlink)
+# models/
+
+# Adapters
+adapters/*.safetensors
+adapters/*.bin
+
+# MLFlow
+mlflow/mlflow.db
+mlflow/artifacts/
+
+# Data (large files)
+data/*.jsonl.gz
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
