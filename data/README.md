@@ -5,10 +5,19 @@
 A single JSONL file where each line is one training example:
 
 ```jsonl
-{"text": "Hey, what's up?\nI'm working on a new project. It's a QLoRA fine-tuning setup for a personal voice model.\nThat sounds cool, how's it going?"}
+{"messages": [
+  {"role": "user", "content": "Write a quick email asking whether there is a recording."},
+  {"role": "assistant", "content": "Sure, here's a draft:\n\nHey team — I missed standup..."}
+]}
 ```
 
-Each `text` field should be a **complete** example of your writing/voice — conversations, emails, code comments, essays, whatever represents how you communicate.
+Each example is a **user prompt + your reply**.  The model learns the pattern of
+"when someone asks this, you reply like that."
+
+The model's chat template is applied automatically during loading, so you don't
+need to know Qwen's special tokens (`user`,
+</think>
+) — just write plain JSON.
 
 ## Tips for a good voice dataset
 
@@ -40,9 +49,12 @@ The model learns the patterns in your text.  Good patterns:
 ## Creating the file
 
 ```bash
-# Manual: just write a JSONL file with your text examples.
-# Programmatic: use a script to extract from your writing history.
-# See evals/ for extraction scripts.
+# Copy the example and fill in your own writing:
+cp data/example.jsonl data/train.jsonl
+# Then edit data/train.jsonl with your real examples.
+
+# Programmatic: use a script to extract from your writing history
+# (GitHub PRs, emails, Slack exports, etc.)
 ```
 
 ## Validation split (optional)

@@ -213,7 +213,16 @@ class DataConfig:
     """Paths and settings for the training dataset.
 
     Expected format: a JSONL file where each line is:
-        {"text": "A complete conversation or prompt+completion example"}
+        {
+          "messages": [
+            {"role": "user", "content": "Write a quick email..."},
+            {"role": "assistant", "content": "Sure, here's a draft..."}
+          ]
+        }
+
+    The model's chat template is applied automatically during loading,
+    so the dataset is model-agnostic — swap the base model without
+    redesigning the data.
 
     See data/README.md for curation tips.
     """
