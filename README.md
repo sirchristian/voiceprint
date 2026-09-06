@@ -1,128 +1,118 @@
-# 🎙️ VoicePrint — QLoRA Fine-Tuning
+# VoicePrint — QLoRA Fine-Tuning
 
-A learning-focused setup for fine-tuning small language models with **LoRA** + **4-bit quantization** (QLoRA).  Start tiny with Qwen3-0.6B, learn the concepts, then scale up.
+Fine-tune a small language model on your writing to capture your voice.  Uses **LoRA** + **4-bit quantization** so you can do this on a single consumer GPU.
 
-## End-to-End Workflow
+Start with Qwen3-0.6B (~600M params), learn the workflow, then swap in a bigger model when you're ready.
+
+## Quick Start
 
 ```bash
-# 1. Create the environment and install dependencies
-uv venv
+# Set up
+uv venv && source .venv/bin/activate
 uv sync
 
-# 2. Add your training data (see data/README.md)
+# Copy example data (or write your own — see data/README.md)
 cp data/example.jsonl data/train.jsonl
 
-# 3. Fine-tune the QLoRA adapter
-uv run python -m voiceprint.train
+# Train the LoRA adapter (~5-10 min on a 5090)
+uv run voiceprint-train
 
-# 4. Test the adapter before exporting
-uv run python -m voiceprint.eval
+# Test it — compare base model vs your adapter
+uv run voiceprint-eval --base-only   # vanilla model
+uv run voiceprint-eval               # model + your voice adapter
+```
 
-# 5. Inspect training metrics (optional)
+Training saves a tiny LoRA adapter to `adapters/user-voice-v1/`.  You can load
+it alongside the base model for inference, or merge it into a standalone model
+for llama.cpp.
+
+### MLFlow (optional)
+
+Track metrics across runs:
+
+```bash
 uv run mlflow ui --backend-store-uri sqlite:///mlflow/mlflow.db
 ```
 
-Training saves the small LoRA adapter to `adapters/user-voice-v1`. MLflow
-also records the training run, but llama.cpp does not load the MLflow model
-directly. For llama.cpp, merge the adapter into the base model and export a
-standalone GGUF file.
+## Export to GGUF for llama.cpp
 
-### Export to GGUF for llama.cpp
-
-Install or build a current [llama.cpp](https://github.com/ggml-org/llama.cpp)
-checkout with Qwen3 support. Set `LLAMA_CPP_DIR` to its location, then run:
+`voiceprint-gguf` merges the adapter into the base model and prints the command
+to run llama.cpp's converter:
 
 ```bash
-export LLAMA_CPP_DIR=/path/to/llama.cpp
-
-# 6. Merge the adapter and print the conversion command
-uv run voiceprint-gguf \
-	--adapter-dir adapters/user-voice-v1 \
-	--merged-dir models/user-voice-merged \
-	--output-dir models/user-voice-gguf \
-	--outfile user-voice-f16.gguf \
-	--outtype f16 \
-	--llama-cpp-dir "$LLAMA_CPP_DIR"
-
-# 7. Convert the merged Hugging Face model to an intermediate GGUF
-uv run python "$LLAMA_CPP_DIR/convert_hf_to_gguf.py" \
-	models/user-voice-merged \
-	--outfile models/user-voice-gguf/user-voice-f16.gguf \
-	--outtype f16
-
-# 8. Quantize the intermediate GGUF for a smaller llama.cpp model
-"$LLAMA_CPP_DIR/llama-quantize" \
-	models/user-voice-gguf/user-voice-f16.gguf \
-	models/user-voice-gguf/user-voice-q4_k_m.gguf \
-	Q4_K_M
-
-# 9. Run the voice model
-"$LLAMA_CPP_DIR/llama-cli" \
-	-m models/user-voice-gguf/user-voice-q4_k_m.gguf \
-	-p "Hey, what are you working on?" \
-	-n 256 \
-	-t 8
+uv run voiceprint-gguf
 ```
 
-The conversion is intentionally two-stage: `convert_hf_to_gguf.py` creates a
-full-precision GGUF, and `llama-quantize` creates the final `Q4_K_M` file.
-The merged model directory must include the tokenizer files; the
-`voiceprint-gguf` command copies them from the adapter automatically.
+Output:
 
-If llama.cpp reports `BPE pre-tokenizer was not recognized`, update the
-llama.cpp checkout. This usually means the converter is older than the Qwen3
-tokenizer support or the merged directory is missing its tokenizer files.
+```
+Merged model saved to: models/user-voice-merged
+Run this to convert to GGUF:
+uv run python /path/to/llama.cpp/convert_hf_to_gguf.py models/user-voice-merged --outfile ...
+```
+
+Copy that command, run it, then quantize if you want a smaller file:
+
+```bash
+./llama.cpp/llama-quantize \
+  models/user-voice-gguf/user-voice-f16.gguf \
+  models/user-voice-gguf/user-voice-q4_k_m.gguf \
+  Q4_K_M
+```
+
+If llama.cpp complains about `BPE pre-tokenizer was not recognized`, your
+llama.cpp checkout is too old for Qwen3. Update it.
+
+## Data Format
+
+One JSONL file, one example per line:
+
+```jsonl
+{"messages": [
+  {"role": "user", "content": "Write a quick email asking whether there is a recording."},
+  {"role": "assistant", "content": "Hey team — I missed standup today..."}
+]}
+```
+
+The model's chat template is applied automatically — no Qwen-specific tokens
+in your data. See [data/README.md](data/README.md) for curation tips.
+
+## Config
+
+Everything tunable lives in `src/voiceprint/config.py`.  Key knobs:
+
+| Setting | What it does |
+|---------|-------------|
+| `VOICE_NAME` | Label for this voice profile (affects output paths, run names) |
+| `BASE_MODEL_ID` | Which HuggingFace model to fine-tune |
+| `LoraConfig.r` | LoRA rank — more = bigger adapter, more capacity |
+| `TrainingConfig.learning_rate` | Start at 2e-4 for LoRA |
+| `TrainingConfig.max_steps` | How long to train |
+| `TrainingConfig.max_seq_length` | Token limit per example (affects VRAM) |
+
+Every parameter has an ELI5 docstring.  Read the file — it's designed to be a reference.
 
 ## Directory Layout
 
-| Directory | Purpose |
-|-----------|---------|
-| `src/voiceprint/` | Core Python package (train, eval, config, data) |
-| `data/` | Your training JSONL files (see [data/README.md](data/README.md)) |
-| `adapters/` | Saved LoRA adapter checkpoints (tiny — usually < 50 MB each) |
-| `models/` | → symlink to `/mnt/storage/models/voiceprint/` (base models + HF cache) |
-| `evals/` | Evaluation scripts, GGUF conversion, llama.cpp testing |
-| `mlflow/` | MLFlow experiment tracking (runs, metrics, artifacts) |
-
-## ELI5 — What is QLoRA?
-
-### LoRA (Low-Rank Adaptation)
-Instead of fine-tuning *all* parameters in a model (which requires saving a full copy), LoRA adds **tiny trainable matrices** alongside the frozen base weights.  Think of it as a sticker overlay on the original model — you can swap stickers without buying a new model.
-
-### Quantization (4-bit)
-Compresses the base model weights from 16-bit to 4-bit floating point.  The model takes ~4× less VRAM with minimal quality loss.  NF4 (NormalFloat 4) is the smartest 4-bit format — it assigns more precision to the weight values that matter most.
-
-### QLoRA = LoRA + 4-bit Quantization
-Train LoRA adapters on a quantized base model.  The result: you can fine-tune a 70B model on a single consumer GPU.
-
-### Key Resources
-- **LoRA paper**: https://arxiv.org/abs/2106.09685
-- **QLoRA paper**: https://arxiv.org/abs/2305.14314
-- **PEFT docs (quantization guide)**: https://huggingface.co/docs/peft/developer_guides/quantization
-- **bitsandbytes docs**: https://huggingface.co/docs/bitsandbytes
+| Path | Purpose |
+|------|---------|
+| `src/voiceprint/` | Core package (train, eval, config, data loading) |
+| `data/` | Training JSONL (`train.jsonl` is gitignored — add your own) |
+| `adapters/` | Saved LoRA checkpoints (< 50 MB each) |
+| `models/` | → symlink to `/mnt/storage/models/voiceprint/` (HF cache + merged models) |
+| `mlflow/` | MLFlow SQLite DB + artifacts |
 
 ## Hardware
 
-Built for **NVIDIA RTX 5090 (32 GB VRAM)**.  The 32 GB gives plenty of headroom:
+Tested on **RTX 5090 (32 GB VRAM)**.  Qwen3-0.6B at 4-bit needs ~5-8 GB total
+(weights + activations + optimizer).  Plenty of headroom for a 7B model too.
 
-| Model | 4-bit VRAM | 8-bit VRAM | 16-bit VRAM |
-|-------|-----------|-----------|------------|
-| Qwen3-0.6B | ~2 GB | ~4 GB | ~1.2 GB |
-| Qwen2.5-1.5B | ~4 GB | ~8 GB | ~3 GB |
-| Qwen2.5-7B | ~18 GB | ~36 GB | ~14 GB |
+## Resources
 
-## Configuring
+- [LoRA paper](https://arxiv.org/abs/2106.09685)
+- [QLoRA paper](https://arxiv.org/abs/2305.14314)
+- [PEFT quantization guide](https://huggingface.co/docs/peft/developer_guides/quantization)
 
-All settings live in `src/voiceprint/config.py` — every parameter has an ELI5 docstring explaining what it does and how to tune it.  Key knobs:
+## TODO
 
-- **`LoraConfig.r`** — LoRA rank (higher = more trainable params, more capacity)
-- **`TrainingConfig.learning_rate`** — Start at 2e-4 for LoRA
-- **`TrainingConfig.max_steps`** — Training duration
-- **`TrainingConfig.max_seq_length`** — Max tokens per example (affects VRAM)
-
-## Next Steps
-
-1. Curate your voice dataset in `data/`.
-2. Train and test the adapter.
-3. Merge and convert it to GGUF.
-4. Run the quantized model with llama.cpp.
+- [ ] Re-enable Qwen3 thinking (`enable_thinking=True`) and test with Qwen3.6 to see if the reasoning tags help or hurt voice quality
