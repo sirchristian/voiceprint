@@ -233,4 +233,8 @@ class DataConfig:
     """
 
     train_file: Path = Path("data/train.jsonl")
-    val_file: Path | None = None  # Optional validation split
+    val_file: Path | None = None  # Optional validation split (own JSONL file)
+    # If val_file isn't set, this fraction of train_file is held out instead.
+    # Set to 0 to disable validation entirely (not recommended).
+    val_split_ratio: float = 0.1
+    val_split_seed: int = 42

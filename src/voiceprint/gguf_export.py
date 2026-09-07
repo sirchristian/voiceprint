@@ -94,6 +94,11 @@ def build_llama_cpp_command(
         str(outfile_path),
         "--outtype",
         outtype,
+        # Merged model has no MTP/NextN weights (merge_and_unload only
+        # produces the main decoder layers), but the base config.json
+        # still advertises them — drop that stale metadata or llama.cpp
+        # looks for a blk.N.attn_norm.weight that was never written.
+        "--no-mtp",
     ]
     return shlex.join(command)
 

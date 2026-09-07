@@ -115,4 +115,7 @@ Tested on **RTX 5090 (32 GB VRAM)**.  Qwen3-0.6B at 4-bit needs ~5-8 GB total
 
 ## TODO
 
-- [ ] Re-enable Qwen3 thinking (`enable_thinking=True`) and test with Qwen3.6 to see if the reasoning tags help or hurt voice quality
+- [x] Thinking is preserved automatically — training data uses `enable_thinking=False`
+      (strips `<think>` blocks from training examples only), so the LoRA shapes the
+      final response style without touching the base model's reasoning behavior.
+      Confirmed working well on Qwen3.5-9B via llama.cpp.

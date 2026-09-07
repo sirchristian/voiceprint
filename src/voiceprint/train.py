@@ -221,7 +221,11 @@ def train(
         subtitle=str(data_cfg.train_file),
     ))
 
-    dataset = load_and_prepare(data_cfg)
+    train_dataset, eval_dataset = load_and_prepare(data_cfg)
+    if eval_dataset is not None:
+        console.print(f"  Train: {len(train_dataset)} examples | Val: {len(eval_dataset)} examples")
+    else:
+        console.print("  [yellow]No validation split — training blind, can't detect overfitting.[/yellow]")
 
     console.print(Panel.fit(
         "[bold cyan]Step 4[/bold cyan]: Training (QLoRA)…",
@@ -253,12 +257,18 @@ def train(
         dataset_text_field="text",
         max_length=train_cfg.max_seq_length,
         packing=False,
+        # Evaluate on the held-out split at the same cadence we save
+        # checkpoints, so val loss is easy to line up against them.
+        eval_strategy="steps" if eval_dataset is not None else "no",
+        eval_steps=train_cfg.save_steps if eval_dataset is not None else None,
+        per_device_eval_batch_size=train_cfg.per_device_train_batch_size,
     )
 
     trainer = SFTTrainer(
         model=model,
         args=sft_config,
-        train_dataset=dataset,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
         processing_class=tokenizer,
     )
 

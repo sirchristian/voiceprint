@@ -34,8 +34,8 @@ from voiceprint.config import BASE_MODEL_ID, DataConfig
 def load_and_prepare(
     data_cfg: DataConfig,
     model_id: str = BASE_MODEL_ID,
-) -> Dataset:
-    """Load a JSONL file, apply the model's chat template, return a HF Dataset.
+) -> tuple[Dataset, Dataset | None]:
+    """Load JSONL file(s), apply the model's chat template, return HF Datasets.
 
     Expected JSONL format (one line per example):
         {"messages": [
@@ -51,16 +51,33 @@ def load_and_prepare(
     speaking and when to stop.  Without it, the model just sees raw
     text and doesn't know the conversation structure.
 
+    ELI5 — Why hold out a validation split?
+    ─────────────────────────────────────────
+    If we only ever look at training loss, we can't tell overfitting
+    (memorizing the training examples) from real learning (generalizing
+    the writing style). A validation split — examples the model never
+    trains on — gives us an honest loss number to watch instead.
+
     Args:
         data_cfg:  Paths to the JSONL data files.
         model_id:  Model ID for the tokenizer (defaults to BASE_MODEL_ID).
 
     Returns:
-        A Dataset with a single column: {"text": str}.
-        SFTTrainer will tokenize it internally.
+        (train_dataset, val_dataset) — each a Dataset with a single
+        "text" column. val_dataset is None if val_split_ratio is 0 and
+        no val_file was given.
     """
-    # Load from local JSONL.
-    raw = load_dataset("json", data_files={"train": str(data_cfg.train_file)})["train"]
+    # Load from local JSONL — either a separate val_file, or one file to split.
+    if data_cfg.val_file is not None:
+        train_raw = load_dataset("json", data_files={"train": str(data_cfg.train_file)})["train"]
+        val_raw = load_dataset("json", data_files={"val": str(data_cfg.val_file)})["val"]
+    elif data_cfg.val_split_ratio > 0:
+        full = load_dataset("json", data_files={"train": str(data_cfg.train_file)})["train"]
+        split = full.train_test_split(test_size=data_cfg.val_split_ratio, seed=data_cfg.val_split_seed)
+        train_raw, val_raw = split["train"], split["test"]
+    else:
+        train_raw = load_dataset("json", data_files={"train": str(data_cfg.train_file)})["train"]
+        val_raw = None
 
     # Load the tokenizer to apply the chat template.
     tokenizer = AutoTokenizer.from_pretrained(
@@ -85,7 +102,7 @@ def load_and_prepare(
         }
 
     # Quick format check — catch the old {"text": "..."} format early.
-    first = raw[0]
+    first = train_raw[0]
     if "messages" not in first:
         raise ValueError(
             f"Expected 'messages' key in JSONL data, got {list(first.keys())}.\n"
@@ -93,10 +110,11 @@ def load_and_prepare(
             "See data/README.md for the current format (messages array)."
         )
 
-    # Map each example through the template.
-    dataset = raw.map(apply_template, remove_columns=["messages"])
+    # Map each split through the template.
+    train_dataset = train_raw.map(apply_template, remove_columns=["messages"])
+    val_dataset = val_raw.map(apply_template, remove_columns=["messages"]) if val_raw is not None else None
 
-    return dataset
+    return train_dataset, val_dataset
 
 
 def print_dataset_stats(dataset: Dataset) -> None:
