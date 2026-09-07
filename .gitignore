@@ -1,5 +1,6 @@
 # Environment
 .env
+.venv
 
 # Python
 __pycache__/
@@ -9,8 +10,8 @@ dist/
 build/
 .venv/
 
-# Models (live on /mnt/storage via symlink)
-# models/
+# Models 
+models/*
 
 # Adapters — training outputs, not source.  Keep adapter_config.json for reference.
 adapters/**/adapter_model.safetensors
@@ -35,6 +36,8 @@ mlruns/
 # Data (user-created training files)
 data/train.jsonl
 data/*.jsonl.gz
+data/models/*
+data/mlflow/*
 
 # IDE
 .vscode/

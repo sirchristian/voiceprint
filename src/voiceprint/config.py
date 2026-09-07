@@ -41,10 +41,11 @@ VOICE_NAME: str = "user"
 # ──────────────────────────────────────────────────────────────────────
 # Base model
 # ──────────────────────────────────────────────────────────────────────
-# We start tiny: Qwen3-0.6B has ~600M parameters.
-# At 4-bit quantization that's ~2 GB on disk, ~5 GB loaded on GPU.
-# Once you're comfortable, swap in a larger model (e.g. Qwen2.5-7B).
-BASE_MODEL_ID: str = "Qwen/Qwen3-0.6B"
+# Qwen3.5-9B: hybrid Gated-DeltaNet/attention vision-language model.
+# `AutoModelForCausalLM` loads only its text backbone (no vision tower),
+# which is what we want for a text-only LoRA — cheaper and simpler.
+# At 4-bit quantization that's ~5-6 GB weights, ~10-14 GB loaded on GPU.
+BASE_MODEL_ID: str = "Qwen/Qwen3.5-9B"
 
 # Where the base model is cached (symlinked to the big spinning drive).
 MODELS_DIR: Path = Path("models").resolve()
@@ -81,9 +82,13 @@ class LoraConfig:
     alpha: int = 32
     dropout: float = 0.05
     # Target every attention + feedforward sub-layer for maximum expressiveness.
+    # Qwen3.5 is a hybrid model: 3 in 4 layers use Gated DeltaNet (linear
+    # attention, named in_proj_*/out_proj) instead of regular attention
+    # (q_proj/k_proj/v_proj/o_proj) — target both so LoRA reaches every layer.
     target_modules: list[str] = field(
         default_factory=lambda: [
             "q_proj", "k_proj", "v_proj", "o_proj",
+            "in_proj_qkv", "in_proj_z", "in_proj_a", "in_proj_b", "out_proj",
             "gate_proj", "up_proj", "down_proj",
         ]
     )

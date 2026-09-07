@@ -75,16 +75,13 @@ mlflow_cfg = MlflowConfig()
 def load_model_and_tokenizer() -> tuple[AutoModelForCausalLM, AutoTokenizer]:
     """Step 1 — Load the base model quantized to 4-bit.
 
-    ELI5: We're loading Qwen3-0.6B in a compressed format (NF4 = 4-bit).
+    ELI5: We're loading the base model in a compressed format (NF4 = 4-bit).
     The bitsandbytes library does the heavy lifting — it reads the 16-bit
     weights from disk and stores them as 4-bit values on the GPU.  The
     quality loss is small because transformers have redundant representations.
 
-    VRAM usage for Qwen3-0.6B at 4-bit:
-        Model weights:      ~2 GB
-        Activations (batch): ~1-2 GB (depends on batch size + seq length)
-        Optimizer states:    ~0.5 GB (paged to CPU with paged_adamw_8bit)
-        Total:               ~5-8 GB out of 32 GB (plenty of headroom!)
+    VRAM usage varies by model — see BASE_MODEL_ID's comment in config.py
+    for a rough per-model estimate.
     """
     console.print(Panel.fit(
         "[bold cyan]Step 1[/bold cyan]: Loading base model (4-bit quantized)…",
